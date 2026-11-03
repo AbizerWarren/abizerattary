@@ -27,6 +27,14 @@ Environment settings: `PORT` (3000), `HOST` (0.0.0.0), `DATA_DIR` (defaults to `
 
 The application data and PDFs persist in ignored `data/`. Data backup downloads JSON; separately preserve `data/uploads/` to retain original documents. This is a single-process pilot store using atomic JSON writes, not a multi-instance production database. Do not share one data directory between server processes.
 
+## Customer intake
+
+New customer and Edit intake use the same form. Customer House Composition captures resident count and one age per resident (fractional years for infants), household marital status, residence type, religion and nationality. FDW Preference captures all 13 requested questions: numeric ideal/upper/lower bounds, ranked nationality/marital-status/religion choices, experience type, prior work location and ordinal education bounds. Inactive preferences are explicitly stored as No preference. Ranking supports selected options, custom entries and up/down controls.
+
+These fields persist as `householdComposition` and `fdwPreferences`; the household summary is generated from resident ages and residence type. Intake is viewable from Intake notes and editable from Edit intake. Existing records retain their old notes, requirements, shortlists and interview feedback; staff can complete the new fields when editing. New preference fields are captured for staff review; the existing job-requirement scoring is unchanged. Additional job requirements and pasted notes remain under a collapsible section.
+
+Both browser and API validate age counts, numeric ranges, education ordering, duplicate ranking options and contradictory fresher/experience choices. The API continues to accept older customer records without structured intake.
+
 ## Matching
 
 Fit measures confirmed job requirements: care experience, language, cooking, employment duration, budget, start date, rest-day arrangements, pet comfort and home experience. Required checks have weight 3; preferences have weight 1. Unknown values earn no points but are shown separately from failures. Required failures set Requirement mismatch regardless of total score. Missing required evidence or an unreviewed profile sets Needs verification. Eligibility is sorted before score. No active criteria yields no score.

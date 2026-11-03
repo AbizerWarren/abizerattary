@@ -11,3 +11,34 @@ h1{font-size:26px;letter-spacing:-.7px;margin-bottom:0}
 .stat-top{margin-bottom:12px}
 .requirements-head h3{margin-bottom:0}
 @media(max-width:560px){h1,.heading h1{font-size:22px}.heading{margin-bottom:20px}}
+/* Customer intake */
+.intake-contact{margin-bottom:24px}
+.intake-section{background:#fff;border:1px solid var(--line);border-radius:10px;padding:20px;margin:0 0 20px}
+.intake-section>h3{font-size:14px;margin:0 0 7px;font-weight:600}
+.intake-question{padding:15px 0;border-bottom:1px solid #eef1e9}
+.intake-question:last-child{border-bottom:0;padding-bottom:0}
+.question-heading{display:flex;justify-content:space-between;gap:14px;align-items:center}
+.question-label{font-size:12px;color:var(--ink);font-weight:500}
+.intake-question>.field{color:var(--ink);font-size:12px}
+.no-preference{display:flex;gap:6px;align-items:center;font-size:10px;color:var(--muted);white-space:nowrap}
+.no-preference input,.ranked-inputs input[type=checkbox]{accent-color:var(--green)}
+.range-inputs,.ranked-inputs{margin:12px 0 0;padding:0;border:0;min-width:0}
+.range-inputs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+fieldset[hidden]{display:none}
+.resident-ages{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.ranking-options{display:flex;gap:7px;flex-wrap:wrap}
+.preference-ranking{list-style:none;padding:0;margin:12px 0 0;display:flex;flex-direction:column;gap:6px}
+.preference-ranking li{display:flex;gap:10px;align-items:center;background:#f6f8f1;border:1px solid #e8edde;border-radius:6px;padding:7px 10px;font-size:11px}
+.rank-position{color:#82956d;font-size:10px;min-width:12px}
+.rank-buttons{display:flex;gap:4px;margin-left:auto}
+.rank-buttons button{border:1px solid #dce5d1;border-radius:4px;background:white;font-size:13px;padding:2px 7px}
+.custom-ranking{display:flex;gap:8px;margin-top:12px}
+.custom-ranking input{min-width:0;flex:1;border:1px solid var(--line);border-radius:6px;padding:8px;font-size:11px}
+.intake-extra{background:white;border:1px solid var(--line);padding:16px 20px;border-radius:10px}
+.intake-extra summary{cursor:pointer;font-size:12px;font-weight:550}
+.intake-extra[open] summary{margin-bottom:16px}
+.intake-summary-row{display:flex;justify-content:space-between;gap:20px;padding:11px 0;border-bottom:1px solid #eef1e9;font-size:11px;line-height:1.6}
+.intake-summary-row:last-child{border:0}
+.intake-summary-row>span{color:var(--muted);flex-shrink:0}
+.intake-summary-row>strong{font-weight:500;text-align:right}
+@media(max-width:560px){.intake-section{padding:15px}.range-inputs{gap:7px}.range-inputs .field{font-size:10px}.range-inputs input,.range-inputs select{padding:8px 6px;font-size:11px}.resident-ages{grid-template-columns:repeat(2,minmax(0,1fr))}.question-label{font-size:11px}.question-heading{gap:7px}.no-preference{font-size:9px}.intake-summary-row{gap:10px}.intake-summary-row>span{flex-shrink:1}}

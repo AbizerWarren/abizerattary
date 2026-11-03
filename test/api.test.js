@@ -4,6 +4,7 @@ import {spawn} from 'node:child_process';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {numericPreferences} from '../public/intake.js';
 const dir=mkdtempSync(path.join(tmpdir(),'amah-test-'));
 const port=33000+Math.floor(Math.random()*2000),base=`http://127.0.0.1:${port}`;
 let server,cookie;
@@ -18,4 +19,19 @@ test('manual rankings require reasons',async()=>{assert.equal((await request('/c
 test('requirement changes preserve existing shortlist and feedback',async()=>{await request('/customers/u1/shortlist','POST',{candidateId:'c1',note:'Interview notes retained'});await request('/customers/u1/requirements','PATCH',{requirements:{english:{priority:'required',value:'fluent'}}});const state=await(await request('/state')).json();const c=state.customers.find(c=>c.id==='u1');assert.equal(c.shortlist[0].notes[0].text,'Interview notes retained');const matches=await(await request('/customers/u1/matches')).json();assert.ok(matches.find(c=>c.id==='c1').match.issues.some(x=>x.key==='english'));});
 test('selection reserves a candidate and blocks new offers',async()=>{await request('/customers/u1/shortlist','POST',{candidateId:'c1',status:'Selected'});assert.equal((await request('/customers/u3/shortlist','POST',{candidateId:'c1'})).status,409);});
 test('invalid uploads are rejected without creating profiles',async()=>{assert.equal((await request('/upload','POST',{name:'fake.pdf',content:Buffer.from('not pdf').toString('base64')})).status,400);});
+test('structured intake persists and editing it preserves shortlist notes',async()=>{
+ const f={experienceType:'experienced',workLocation:'ex-sg'};
+ for(const [key] of [...numericPreferences,['education']])f[key]={noPreference:true,ideal:null,upper:null,lower:null};
+ for(const key of ['nationality','maritalStatus','religion'])f[key]={noPreference:true,ranking:[]};
+ f.nationality={noPreference:false,ranking:['Myanmar','Indonesian']};
+ const h={residentCount:3,residentAges:[35,32,0.5],maritalStatus:'Married',residenceType:'HDB flat',religion:'Hindu',nationality:'Singaporean'};
+ const res=await request('/customers','POST',{name:'Structured family',householdComposition:h,fdwPreferences:f,requirements:{}});assert.equal(res.status,201);const created=await res.json();assert.deepEqual(created.householdComposition.residentAges,h.residentAges);assert.deepEqual(created.fdwPreferences.nationality.ranking,['Myanmar','Indonesian']);
+ await request('/customers/'+created.id+'/shortlist','POST',{candidateId:'c2',note:'Keep this interview feedback'});
+ h.residentCount=4;h.residentAges.push(65);
+ const updated=await request('/customers/'+created.id+'/requirements','PATCH',{householdComposition:h,fdwPreferences:f});assert.equal(updated.status,200);const c=await updated.json();assert.equal(c.householdComposition.residentCount,4);assert.equal(c.shortlist[0].notes[0].text,'Keep this interview feedback');
+});
+test('invalid intake is rejected without overwriting existing customer data',async()=>{
+ const res=await request('/customers/u1/requirements','PATCH',{householdComposition:{residentCount:2,residentAges:[35]},notes:'Should never be saved'});assert.equal(res.status,400);
+ const state=await(await request('/state')).json();assert.notEqual(state.customers.find(c=>c.id==='u1').notes,'Should never be saved');
+});
 test('customer data survives server restart',async()=>{const res=await request('/customers','POST',{name:'Persistence test',household:'2 adults',requirements:{}});assert.equal(res.status,201);const c=await res.json();await stop();await launch();const login=await request('/login','POST',{password:'test-only-password'},false);cookie=login.headers.get('set-cookie').split(';')[0];const state=await(await request('/state')).json();assert.ok(state.customers.some(x=>x.id===c.id));});

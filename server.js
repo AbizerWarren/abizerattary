@@ -6,6 +6,7 @@ import {randomBytes,scryptSync,timingSafeEqual} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {seed} from './lib/seed.js';
 import {rank} from './lib/matching.js';
+import {validateIntake,householdSummary} from './public/intake.js';
 
 const root=path.dirname(fileURLToPath(import.meta.url));
 const dir=process.env.DATA_DIR || path.join(root,'data');
@@ -48,14 +49,22 @@ const server=http.createServer(async(req,res)=>{
  if(p==='/api/logout'&&req.method==='POST'){sessions.delete(token);res.setHeader('Set-Cookie','amah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return json(res,200,{ok:true});}
  if(p==='/api/state'&&req.method==='GET')return json(res,200,{...db,demo});
  if(p==='/api/customers'&&req.method==='POST'){
-  const b=await body(req);if(!String(b.name||'').trim())fail('Customer name is required');
-  const c={id:id(),name:String(b.name).trim().slice(0,100),contact:b.contact||'',phone:b.phone||'',household:b.household||'',notes:b.notes||'',preferences:b.preferences||{},requirements:b.requirements||{},budget:b.budget||null,startDate:b.startDate||'',status:'Matching',shortlist:[],ranking:[],rankingNotes:[],createdAt:new Date().toISOString()};db.customers.unshift(c);log('Customer added: '+c.name);save();return json(res,201,c);
+  const b=await body(req);const intake=validateIntake(b);if(!String(b.name||'').trim())fail('Customer name is required');
+  const c={id:id(),name:String(b.name).trim().slice(0,100),contact:b.contact||'',phone:b.phone||'',household:intake.householdComposition?householdSummary(intake.householdComposition):b.household||'',...intake,notes:b.notes||'',preferences:b.preferences||{},requirements:b.requirements||{},budget:b.budget||null,startDate:b.startDate||'',status:'Matching',shortlist:[],ranking:[],rankingNotes:[],createdAt:new Date().toISOString()};db.customers.unshift(c);log('Customer added: '+c.name);save();return json(res,201,c);
  }
  const customerMatch=p.match(/^\/api\/customers\/([^/]+)(?:\/(matches|shortlist|ranking|requirements))?$/);
  if(customerMatch){
   const c=db.customers.find(c=>c.id===customerMatch[1]);if(!c)fail('Customer not found',404);const action=customerMatch[2];
   if(action==='matches'&&req.method==='GET')return json(res,200,rank(db.candidates,c));
-  if(action==='requirements'&&req.method==='PATCH'){const b=await body(req);c.requirements=b.requirements||{};if(b.notes!==undefined)c.notes=String(b.notes);log('Requirements updated for '+c.name);save();return json(res,200,c);}
+  if(action==='requirements'&&req.method==='PATCH'){
+    const b=await body(req),intake=validateIntake(b);
+    if(b.name!==undefined&&!String(b.name).trim())fail('Customer name is required');
+    if(b.requirements!==undefined){c.requirements=b.requirements;c.budget=c.requirements.salary?.priority!=='none'?c.requirements.salary?.value??null:null;c.startDate=c.requirements.availableBy?.priority!=='none'?c.requirements.availableBy?.value||'':'';}
+    for(const k of ['name','contact','phone','notes'])if(b[k]!==undefined)c[k]=String(b[k]);
+    Object.assign(c,intake);
+    if(intake.householdComposition)c.household=householdSummary(intake.householdComposition);
+    log('Customer intake updated for '+c.name);save();return json(res,200,c);
+  }
   if(action==='ranking'&&req.method==='POST'){const b=await body(req);if(!String(b.reason||'').trim())fail('A reason is required');if(!Array.isArray(b.order)||b.order.some(x=>!db.candidates.some(c=>c.id===x))||new Set(b.order).size!==b.order.length)fail('Invalid order');c.ranking=b.order;c.rankingNotes??=[];c.rankingNotes.unshift({candidateId:b.candidateId,reason:String(b.reason).slice(0,2000),at:new Date().toISOString()});save();return json(res,200,c);}
   if(action==='shortlist'&&req.method==='POST'){
    const b=await body(req),candidate=db.candidates.find(x=>x.id===b.candidateId);if(!candidate)fail('Candidate not found',404);
@@ -89,7 +98,7 @@ const server=http.createServer(async(req,res)=>{
  if(p==='/api/backup'&&req.method==='GET'){res.setHeader('Content-Disposition','attachment; filename="amah-backup.json"');return json(res,200,db);}
  if(p.startsWith('/api/'))fail('Route not found',404);
  if(!['GET','HEAD'].includes(req.method))fail('Method not allowed',405);
- const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/favicon.svg':'favicon.svg'};const file=files[p];if(!file)fail('Not found',404);const mime={html:'text/html; charset=utf-8',js:'application/javascript',css:'text/css',svg:'image/svg+xml'};res.writeHead(200,{'Content-Type':mime[file.split('.').pop()]});res.end(readFileSync(path.join(root,'public',file)));
+ const files={'/':'index.html','/app.js':'app.js','/intake.js':'intake.js','/style.css':'style.css','/favicon.svg':'favicon.svg'};const file=files[p];if(!file)fail('Not found',404);const mime={html:'text/html; charset=utf-8',js:'application/javascript',css:'text/css',svg:'image/svg+xml'};res.writeHead(200,{'Content-Type':mime[file.split('.').pop()]});res.end(readFileSync(path.join(root,'public',file)));
  }catch(e){if(!res.headersSent)json(res,e.status||500,{error:e.status?e.message:'An unexpected error occurred'});else res.end();if(!e.status)console.error(e);}
 });
 server.listen(Number(process.env.PORT||3000),process.env.HOST||'0.0.0.0',()=>console.log(`Amah running on port ${process.env.PORT||3000}${demo?' · demo login enabled':''}`));
