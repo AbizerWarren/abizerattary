@@ -1,0 +1,110 @@
+"""Browser smoke test against a disposable server and dataset.
+Run with: python3 test/browser.py
+Requires Python Playwright, system Chromium and PyMuPDF.
+"""
+from pathlib import Path
+import json, os, subprocess, tempfile, time
+import fitz
+from playwright.sync_api import sync_playwright, expect
+
+root = Path(__file__).resolve().parent.parent
+artifacts = Path(os.environ.get('ARTIFACTS_DIR', '/workspace/amah-preview'))
+artifacts.mkdir(parents=True, exist_ok=True)
+with tempfile.TemporaryDirectory(prefix='amah-browser-') as td:
+    env = dict(os.environ, DATA_DIR=td, PORT='3001', HOST='127.0.0.1', AGENCY_PASSWORD='browser-test-only')
+    server = subprocess.Popen(['node', 'server.js'], cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        assert 'Amah running' in server.stdout.readline().decode()
+        pdf = Path(td) / 'test-candidate.pdf'
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72,72), 'Name: Anika Test\nNationality: Indonesian\nEmployment: 2023-2025\nEnglish: conversational')
+        doc.save(pdf)
+        errors=[]
+        with sync_playwright() as p:
+            browser = p.chromium.launch(executable_path='/usr/bin/chromium', headless=True, args=['--no-sandbox'])
+            page = browser.new_page(viewport={'width':1440, 'height':1080}, timezone_id='Asia/Singapore')
+            page.on('pageerror', lambda e: errors.append(str(e)))
+            page.goto('http://127.0.0.1:3001')
+            page.locator('[name=password]').fill('browser-test-only')
+            page.get_by_role('button', name='Open workspace').click()
+            expect(page.get_by_role('heading',name='Good things start with a good match.')).to_be_visible()
+            page.screenshot(path=str(artifacts/'overview.png'), full_page=True)
+            page.get_by_role('button',name='The Tan family').click()
+            expect(page.locator('.match-card')).to_have_count(8)
+            page.screenshot(path=str(artifacts/'customer-matches.png'), full_page=True)
+            page.get_by_role('button',name='May Thiri',exact=True).click()
+            expect(page.get_by_role('dialog')).to_be_visible()
+            expect(page.get_by_text('Fit for The Tan family')).to_be_visible()
+            page.keyboard.press('Escape')
+            page.get_by_role('button',name='Freshers',exact=True).click()
+            expect(page.locator('.match-card')).to_have_count(1)
+            page.get_by_role('button',name='All',exact=True).click()
+            page.get_by_role('button',name='My ranking',exact=True).click()
+            name=page.locator('.match-card').nth(1).locator('.match-name button').inner_text()
+            page.get_by_role('button',name=f'Move {name} up',exact=True).click()
+            page.locator('[name=reason]').fill('Communication was stronger in our interview.')
+            page.get_by_role('button',name='Save my ranking').click()
+            expect(page.locator('.match-card').first.locator('.match-name button')).to_have_text(name)
+            expect(page.locator('.ranking-note').first).to_contain_text('Communication was stronger')
+            page.get_by_role('button',name='By match',exact=True).click()
+            page.locator('.match-card').filter(has=page.get_by_role('button',name='May Thiri',exact=True)).get_by_role('button',name='Shortlist',exact=True).click()
+            page.get_by_role('button',name='Your shortlist',exact=False).click()
+            expect(page.locator('.shortlist-tile')).to_have_count(2)
+            page.locator('.shortlist-tile').filter(has=page.get_by_role('button',name='May Thiri',exact=True)).get_by_role('button',name='Update & add notes').click()
+            page.locator('[name=status]').select_option('Interview scheduled')
+            page.locator('[name=interviewDate]').fill('2026-11-10T11:00')
+            page.locator('[name=note]').fill('Confirm infant routines and communication.')
+            page.get_by_role('button',name='Save update',exact=True).click()
+            expect(page.get_by_text('Confirm infant routines and communication.')).to_be_visible()
+            page.locator('.nav button[data-route=customers]').click()
+            page.get_by_role('button',name='New customer',exact=True).click()
+            page.locator('[name=name]').fill('Browser test family')
+            page.locator('[name=household]').fill('2 adults and a baby')
+            page.locator('[name=notes]').fill('Infant care, conversational English, Indian cooking. Budget S$700.')
+            page.get_by_role('button',name='Suggest from notes').click()
+            expect(page.locator('[name=req_care]')).to_have_value('Infant')
+            expect(page.locator('[name=req_salary]')).to_have_value('700')
+            page.locator('[name=priority_care]').select_option('required')
+            page.get_by_role('button',name='Create & find matches').click()
+            expect(page.get_by_role('heading',name='Browser test family',exact=True)).to_be_visible()
+            page.reload()
+            page.locator('.nav button[data-route=customers]').click()
+            expect(page.get_by_role('button',name='Browser test family')).to_be_visible()
+            page.locator('.nav button[data-route=candidates]').click()
+            page.get_by_role('button',name='Upload profiles',exact=True).click()
+            page.locator('#upload-supplier').fill('Browser test supplier')
+            page.locator('#pdf-files').set_input_files(str(pdf))
+            expect(page.locator('#upload-progress')).to_contain_text('added to review queue', timeout=10000)
+            page.keyboard.press('Escape')
+            page.locator('.nav button[data-route=review]').click()
+            for _ in range(30):
+                if page.get_by_role('heading',name='Anika Test',exact=True).count(): break
+                page.wait_for_timeout(500)
+            item=page.locator('.review-item').filter(has=page.get_by_role('heading',name='Anika Test',exact=True))
+            item.get_by_role('button',name='Review profile').click()
+            expect(page.get_by_role('link',name='Open original PDF')).to_be_visible()
+            page.get_by_text('Page 1 · extracted evidence').click()
+            expect(page.locator('.source-text')).to_contain_text('Name: Anika Test')
+            page.locator('[name=nationality]').fill('Indonesian')
+            page.locator('[name=reviewStatus]').select_option('verified')
+            page.get_by_role('button',name='Save profile').click()
+            expect(page.get_by_role('heading',name='Anika Test',exact=True)).to_have_count(0)
+            page.locator('.nav button[data-route=candidates]').click()
+            page.locator('[data-search=candidates]').fill('Anika')
+            expect(page.locator('tbody tr')).to_have_count(1)
+            page.locator('.nav button[data-route=dashboard]').click()
+            page.set_viewport_size({'width':390,'height':844})
+            expect(page.locator('#toast')).not_to_be_visible(timeout=6000)
+            page.screenshot(path=str(artifacts/'mobile.png'),full_page=True)
+            assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Mobile overflow'
+            page.locator('.nav button[data-route=customers]').click()
+            page.get_by_role('button',name='The Tan family').click()
+            assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Match mobile overflow'
+            page.screenshot(path=str(artifacts/'mobile-matches.png'),full_page=True)
+            assert not errors, errors
+            print(json.dumps({'passed':True,'checks':['login','overview','customer matches','score explanations','fresher filter','manual ranking + reason','shortlisting','interview notes','intake suggestions','customer persistence','PDF upload + extraction','source evidence','staff review','candidate search','mobile layout','no browser runtime errors'],'artifacts':str(artifacts)},indent=2))
+            browser.close()
+    finally:
+        server.terminate()
+        server.wait(timeout=10)
