@@ -1,7 +1,7 @@
 import {test,before,after} from 'node:test';
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {spawn,execFileSync} from 'node:child_process';
+import {mkdtempSync,rmSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {numericPreferences} from '../public/intake.js';
@@ -33,5 +33,23 @@ test('structured intake persists and editing it preserves shortlist notes',async
 test('invalid intake is rejected without overwriting existing customer data',async()=>{
  const res=await request('/customers/u1/requirements','PATCH',{householdComposition:{residentCount:2,residentAges:[35]},notes:'Should never be saved'});assert.equal(res.status,400);
  const state=await(await request('/state')).json();assert.notEqual(state.customers.find(c=>c.id==='u1').notes,'Should never be saved');
+});
+test('uploaded PDF populates fields; re-extraction preserves staff corrections; deletion removes the original',async()=>{
+ const content=execFileSync(process.env.PYTHON||'python3',['-c',"import fitz,base64; d=fitz.open(); p=d.new_page(); p.insert_text((50,50),'Name: Upload Test\\nNationality: Indonesian\\nHeight: 155 cm\\nWeight: 52 kg\\nEnglish: conversational\\nSalary: S$650'); print(base64.b64encode(d.tobytes()).decode())"],{encoding:'utf8'}).trim();
+ const response=await request('/upload','POST',{name:'realistic-biodata.pdf',content});assert.equal(response.status,201);const c=await response.json();
+ async function finished(){for(let i=0;i<100;i++){const s=await(await request('/state')).json(),p=s.candidates.find(p=>p.id===c.id);if(p?.processing==='failed')assert.fail(p.extractionError);if(p?.processing==='complete')return p;await new Promise(r=>setTimeout(r,100));}assert.fail('Extraction timeout');}
+ const parsed=await finished();assert.equal(parsed.name,'Upload Test');assert.equal(parsed.height_cm,155);assert.equal(parsed.salary,650);assert.equal(parsed.english,'conversational');assert.equal(parsed.extracted.evidence.height_cm.page,1);
+ await request('/candidates/'+c.id,'PATCH',{name:'Corrected name',height_cm:157});assert.equal((await request('/candidates/'+c.id+'/extract','POST',{})).status,202);const corrected=await finished();assert.equal(corrected.name,'Corrected name');assert.equal(corrected.height_cm,157);
+ assert.ok(existsSync(path.join(dir,'uploads',c.documentId+'.pdf')));assert.equal((await request('/candidates/'+c.id,'DELETE')).status,200);assert.ok(!existsSync(path.join(dir,'uploads',c.documentId+'.pdf')));assert.equal((await request('/documents/'+c.documentId)).status,404);
+});
+test('deleting a shortlisted candidate removes shortlist and ranking references',async()=>{
+ await request('/customers/u3/shortlist','POST',{candidateId:'c2'});await request('/customers/u3/ranking','POST',{candidateId:'c2',order:['c2','c3'],reason:'Test move'});
+ assert.equal((await request('/candidates/c2','DELETE')).status,200);const state=await(await request('/state')).json();assert.ok(!state.candidates.some(c=>c.id==='c2'));
+ for(const customer of state.customers){assert.ok(!customer.shortlist.some(s=>s.candidateId==='c2'));assert.ok(!customer.ranking?.includes('c2'));assert.ok(!customer.rankingNotes?.some(n=>n.candidateId==='c2'));}
+ assert.equal((await request('/candidates/c2','DELETE')).status,404);
+});
+test('deleting a queued or processing upload cannot resurrect its record',async()=>{
+ const content=execFileSync(process.env.PYTHON||'python3',['-c',"import fitz,base64; d=fitz.open(); p=d.new_page(); p.insert_text((50,50),'Name: Pending Test'); print(base64.b64encode(d.tobytes()).decode())"],{encoding:'utf8'}).trim();
+ const c=await(await request('/upload','POST',{name:'pending.pdf',content})).json();assert.equal((await request('/candidates/'+c.id,'DELETE')).status,200);await new Promise(r=>setTimeout(r,500));const state=await(await request('/state')).json();assert.ok(!state.candidates.some(x=>x.id===c.id));assert.ok(!existsSync(path.join(dir,'uploads',c.documentId+'.pdf')));
 });
 test('customer data survives server restart',async()=>{const res=await request('/customers','POST',{name:'Persistence test',household:'2 adults',requirements:{}});assert.equal(res.status,201);const c=await res.json();await stop();await launch();const login=await request('/login','POST',{password:'test-only-password'},false);cookie=login.headers.get('set-cookie').split(';')[0];const state=await(await request('/state')).json();assert.ok(state.customers.some(x=>x.id===c.id));});

@@ -1,9 +1,9 @@
 import http from 'node:http';
-import {readFileSync,writeFileSync,renameSync,mkdirSync,existsSync,statSync} from 'node:fs';
+import {readFileSync,writeFileSync,renameSync,mkdirSync,existsSync,statSync,rmSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomBytes,scryptSync,timingSafeEqual} from 'node:crypto';
-import {spawn} from 'node:child_process';
+import {spawn,spawnSync} from 'node:child_process';
 import {seed} from './lib/seed.js';
 import {rank} from './lib/matching.js';
 import {validateIntake,householdSummary} from './public/intake.js';
@@ -25,8 +25,37 @@ async function body(req){let data='',n=0;for await(const chunk of req){n+=chunk.
 const fail=(message,status=400)=>{throw Object.assign(new Error(message),{status});};
 const validStatus=['Available','Unconfirmed','Reserved','Placed','Withdrawn'];
 const stage=['Shortlisted','Sent to customer','Interview scheduled','Interviewed','Selected','Rejected'];
-const queue=[];let active=0;
-function processQueue(){while(active<2&&queue.length){const candidate=queue.shift();active++;candidate.processing='processing';save();const child=spawn(process.env.PYTHON||'python3',[path.join(root,'scripts/extract.py'),path.join(dir,'uploads',candidate.documentId+'.pdf')]);let out='',err='';const timer=setTimeout(()=>child.kill(),60000);child.stdout.on('data',x=>out+=x);child.stderr.on('data',x=>err+=x);let done=false;const finish=(code)=>{if(done)return;done=true;clearTimeout(timer);try{if(code!==0)throw new Error('PDF text extraction unavailable. Original retained; enter details manually.');const result=JSON.parse(out);candidate.extracted=result;candidate.name=result.name||candidate.name;candidate.initials=candidate.name.split(/\s+/).slice(0,2).map(x=>x[0]).join('').toUpperCase();candidate.processing='complete';log('PDF ready for review: '+candidate.name);}catch(e){candidate.processing='failed';candidate.extractionError=e.message;}save();active--;processQueue();};child.on('error',()=>finish(1));child.on('close',finish);}}
+const queue=[];const workers=new Map();let active=0;
+const ocrAvailable=spawnSync('tesseract',['--version'],{timeout:3000}).status===0;
+const profileFields=['name','dob','nationality','age','marital','religion','education','height_cm','weight_kg','siblings','childrenCount','children','english','care','careEvidence','willingness','cooking','years','salary','restDays','pets','homes','availableFrom','supplier','summary','jobs','workLocation','referenceCode','placeOfBirth','dietaryRestrictions','languages'];
+function processQueue(){
+ while(active<2&&queue.length){
+  const candidate=queue.shift();
+  if(!db.candidates.includes(candidate))continue;
+  active++;candidate.processing='processing';save();
+  const child=spawn(process.env.PYTHON||'python3',[path.join(root,'scripts/extract.py'),path.join(dir,'uploads',candidate.documentId+'.pdf')]);
+  workers.set(candidate.id,child);
+  let out='',err='',done=false;
+  const timer=setTimeout(()=>child.kill(),180000);
+  child.stdout.on('data',x=>{out+=x;if(out.length>4*1024*1024)child.kill();});child.stderr.on('data',x=>{if(err.length<2000)err+=x;});
+  function finish(code){
+   if(done)return;done=true;clearTimeout(timer);workers.delete(candidate.id);
+   if(db.candidates.includes(candidate)){
+    try{
+     if(code!==0)throw new Error(err.trim().split('\n').at(-1)||'Extraction failed or timed out. The original PDF is retained.');
+     const result=JSON.parse(out);candidate.extracted=result;
+     for(const key of profileFields)if(result.fields?.[key]!==undefined&&!(candidate.manualFields||[]).includes(key)&&!(key==='careEvidence'&&(candidate.manualFields||[]).includes('care')))candidate[key]=result.fields[key];
+     candidate.initials=candidate.name.split(/\s+/).slice(0,2).map(x=>x[0]).join('').toUpperCase();
+     candidate.processing='complete';delete candidate.extractionError;candidate.lastExtractionAt=new Date().toISOString();
+     log('PDF extracted: '+candidate.name);
+    }catch(error){candidate.processing='failed';candidate.extractionError=error.message;}
+    save();
+   }
+   active--;processQueue();
+  }
+  child.on('error',()=>finish(1));child.on('close',finish);
+ }
+}
 for(const c of db.candidates)if(['queued','processing'].includes(c.processing)){c.processing='queued';queue.push(c);}processQueue();
 
 const server=http.createServer(async(req,res)=>{
@@ -47,7 +76,7 @@ const server=http.createServer(async(req,res)=>{
  }
  if(p.startsWith('/api/')&&!authenticated)fail('Please sign in',401);
  if(p==='/api/logout'&&req.method==='POST'){sessions.delete(token);res.setHeader('Set-Cookie','amah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');return json(res,200,{ok:true});}
- if(p==='/api/state'&&req.method==='GET')return json(res,200,{...db,demo});
+ if(p==='/api/state'&&req.method==='GET')return json(res,200,{...db,demo,processingCapabilities:{ocrAvailable}});
  if(p==='/api/customers'&&req.method==='POST'){
   const b=await body(req);const intake=validateIntake(b);if(!String(b.name||'').trim())fail('Customer name is required');
   const c={id:id(),name:String(b.name).trim().slice(0,100),contact:b.contact||'',phone:b.phone||'',household:intake.householdComposition?householdSummary(intake.householdComposition):b.household||'',...intake,notes:b.notes||'',preferences:b.preferences||{},requirements:b.requirements||{},budget:b.budget||null,startDate:b.startDate||'',status:'Matching',shortlist:[],ranking:[],rankingNotes:[],createdAt:new Date().toISOString()};db.customers.unshift(c);log('Customer added: '+c.name);save();return json(res,201,c);
@@ -77,10 +106,42 @@ const server=http.createServer(async(req,res)=>{
    save();return json(res,200,c);
   }
  }
+ const reextract=p.match(/^\/api\/candidates\/([^/]+)\/extract$/);
+ if(reextract&&req.method==='POST'){
+  const c=db.candidates.find(x=>x.id===reextract[1]);if(!c)fail('Candidate not found',404);
+  if(!c.documentId)fail('No source PDF is attached to this profile');
+  if(['queued','processing'].includes(c.processing))fail('Extraction is already in progress',409);
+  c.processing='queued';c.reviewStatus='review';queue.push(c);save();processQueue();return json(res,202,{ok:true});
+ }
  const candidateMatch=p.match(/^\/api\/candidates\/([^/]+)$/);
+ if(candidateMatch&&req.method==='DELETE'){
+  const c=db.candidates.find(x=>x.id===candidateMatch[1]);if(!c)fail('Candidate not found',404);
+  workers.get(c.id)?.kill();
+  for(let i=queue.length-1;i>=0;i--)if(queue[i].id===c.id)queue.splice(i,1);
+  if(c.documentId)rmSync(path.join(dir,'uploads',c.documentId+'.pdf'),{force:true});
+  db.candidates=db.candidates.filter(x=>x.id!==c.id);
+  for(const customer of db.customers){
+   const selected=customer.shortlist.some(s=>s.candidateId===c.id&&s.status==='Selected');
+   customer.shortlist=customer.shortlist.filter(s=>s.candidateId!==c.id);
+   customer.ranking=(customer.ranking||[]).filter(id=>id!==c.id);
+   customer.rankingNotes=(customer.rankingNotes||[]).filter(n=>n.candidateId!==c.id);
+   if(selected&&customer.status==='Selected')customer.status='Matching';
+  }
+  log('Profile deleted: '+c.name);save();return json(res,200,{ok:true});
+ }
  if(candidateMatch&&req.method==='PATCH'){
   const c=db.candidates.find(x=>x.id===candidateMatch[1]);if(!c)fail('Candidate not found',404);const b=await body(req);
-  for(const k of ['name','dob','nationality','age','english','care','cooking','years','salary','restDays','pets','homes','availableFrom','supplier','summary'])if(b[k]!==undefined)c[k]=b[k];
+  if(b.name!==undefined&&(!String(b.name).trim()||typeof b.name!=='string'))fail('Name is required');
+  for(const key of ['age','years','salary','restDays','height_cm','weight_kg','siblings','childrenCount'])if(b[key]!=null&&(!Number.isFinite(b[key])||b[key]<0))fail('Invalid '+key);
+  if(b.children!==undefined&&b.children!==null&&(!Array.isArray(b.children)||b.children.some(a=>!Number.isFinite(a)||a<0||a>100)))fail('Invalid child ages');
+  if(b.jobs!==undefined&&(!Array.isArray(b.jobs)||b.jobs.length>30||b.jobs.some(j=>!j||typeof j!=='object'||j.from!=null&&!Number.isFinite(j.from)||j.to!=null&&!Number.isFinite(j.to)||j.from!=null&&j.to!=null&&j.from>j.to)))fail('Invalid employment history');
+  c.manualFields??=[];
+  for(const key of profileFields)if(b[key]!==undefined&&JSON.stringify(c[key])!==JSON.stringify(b[key])){
+   const empty=v=>v==null||v===''||Array.isArray(v)&&!v.length;
+   const correction=key==='care'||!(empty(c[key])&&empty(b[key]));
+   c[key]=b[key];if(correction&&!c.manualFields.includes(key))c.manualFields.push(key);
+  }
+  if(b.care!==undefined&&c.manualFields.includes('care'))c.careEvidence=Object.fromEntries(['Infant','Child','Elderly','Disability'].map(k=>[k,Array.isArray(c.care)&&!c.care.length?false:c.care?.includes(k)?true:null]));
   if(b.availability){if(!validStatus.includes(b.availability))fail('Invalid availability');c.availability=b.availability;}
   if(b.reviewStatus){if(!['review','verified'].includes(b.reviewStatus))fail('Invalid review status');c.reviewStatus=b.reviewStatus;}
   if(b.note){c.notes??=[];c.notes.push({text:String(b.note).slice(0,4000),at:new Date().toISOString()});}
@@ -98,7 +159,7 @@ const server=http.createServer(async(req,res)=>{
  if(p==='/api/backup'&&req.method==='GET'){res.setHeader('Content-Disposition','attachment; filename="amah-backup.json"');return json(res,200,db);}
  if(p.startsWith('/api/'))fail('Route not found',404);
  if(!['GET','HEAD'].includes(req.method))fail('Method not allowed',405);
- const files={'/':'index.html','/app.js':'app.js','/intake.js':'intake.js','/style.css':'style.css','/favicon.svg':'favicon.svg'};const file=files[p];if(!file)fail('Not found',404);const mime={html:'text/html; charset=utf-8',js:'application/javascript',css:'text/css',svg:'image/svg+xml'};res.writeHead(200,{'Content-Type':mime[file.split('.').pop()]});res.end(readFileSync(path.join(root,'public',file)));
+ const files={'/':'index.html','/app.js':'app.js','/intake.js':'intake.js','/profile.js':'profile.js','/style.css':'style.css','/favicon.svg':'favicon.svg'};const file=files[p];if(!file)fail('Not found',404);const mime={html:'text/html; charset=utf-8',js:'application/javascript',css:'text/css',svg:'image/svg+xml'};res.writeHead(200,{'Content-Type':mime[file.split('.').pop()]});res.end(readFileSync(path.join(root,'public',file)));
  }catch(e){if(!res.headersSent)json(res,e.status||500,{error:e.status?e.message:'An unexpected error occurred'});else res.end();if(!e.status)console.error(e);}
 });
 server.listen(Number(process.env.PORT||3000),process.env.HOST||'0.0.0.0',()=>console.log(`Amah running on port ${process.env.PORT||3000}${demo?' · demo login enabled':''}`));

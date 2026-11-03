@@ -22,3 +22,4 @@ test('placed and withdrawn candidates are excluded; eligibility precedes score',
 });
 test('no customer requirements does not produce a perfect score',()=>{const {candidates}=seed();assert.equal(analyze(candidates[0],{}).score,null);assert.equal(analyze(candidates[0],{}).eligibility,'Requirements needed');});
 test('personal background does not alter the fit score',()=>{const {candidates,customers}=seed();assert.equal(analyze(candidates[0],customers[0]).score,analyze({...candidates[0],nationality:'Other',age:50,religion:'Other',marital:'divorced'},customers[0]).score);});
+test('generic child-care declaration does not establish infant experience',()=>{const {candidates,customers}=seed();const result=analyze({...candidates[0],care:['Child'],careEvidence:{Child:true,Infant:null}},customers[0]);assert.equal(result.eligibility,'Needs verification');assert.ok(result.unknown.some(x=>x.key==='care'));});

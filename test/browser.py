@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix='amah-browser-') as td:
         pdf = Path(td) / 'test-candidate.pdf'
         doc = fitz.open()
         page = doc.new_page()
-        page.insert_text((72,72), 'Name: Anika Test\nNationality: Indonesian\nEmployment: 2023-2025\nEnglish: conversational')
+        page.insert_text((72,72), 'Name: Anika Test\nNationality: Indonesian\nHeight: 155 cm\nWeight: 52 kg\nSalary: S$650\nMarital status: Single\nEducation: Secondary\nNumber of siblings: 2\nEnglish: conversational')
         doc.save(pdf)
         errors=[]
         with sync_playwright() as p:
@@ -125,6 +125,16 @@ with tempfile.TemporaryDirectory(prefix='amah-browser-') as td:
             item=page.locator('.review-item').filter(has=page.get_by_role('heading',name='Anika Test',exact=True))
             item.get_by_role('button',name='Review profile').click()
             expect(page.get_by_role('link',name='Open original PDF')).to_be_visible()
+            expect(page.locator('[name=nationality]')).to_have_value('Indonesian')
+            expect(page.locator('[name=height_cm]')).to_have_value('155')
+            expect(page.locator('[name=weight_kg]')).to_have_value('52')
+            expect(page.locator('[name=salary]')).to_have_value('650')
+            expect(page.locator('[name=english]')).to_have_value('conversational')
+            expect(page.locator('[name=marital]')).to_have_value('Single')
+            expect(page.locator('[name=siblings]')).to_have_value('2')
+            page.locator('.drawer').evaluate('(e)=>e.scrollTop=0')
+            page.wait_for_timeout(250)
+            page.screenshot(path=str(artifacts/'extracted-profile.png'),full_page=True)
             page.get_by_text('Page 1 · extracted evidence').click()
             expect(page.locator('.source-text')).to_contain_text('Name: Anika Test')
             page.locator('[name=nationality]').fill('Indonesian')
@@ -134,6 +144,12 @@ with tempfile.TemporaryDirectory(prefix='amah-browser-') as td:
             page.locator('.nav button[data-route=candidates]').click()
             page.locator('[data-search=candidates]').fill('Anika')
             expect(page.locator('tbody tr')).to_have_count(1)
+            page.once('dialog',lambda dialog:dialog.dismiss())
+            page.get_by_role('button',name='Delete Anika Test',exact=True).click()
+            expect(page.locator('tbody tr')).to_have_count(1)
+            page.once('dialog',lambda dialog:dialog.accept())
+            page.get_by_role('button',name='Delete Anika Test',exact=True).click()
+            expect(page.locator('tbody tr')).to_have_count(0)
             page.locator('.nav button[data-route=dashboard]').click()
             page.set_viewport_size({'width':390,'height':844})
             expect(page.locator('#toast')).not_to_be_visible(timeout=6000)
@@ -144,7 +160,7 @@ with tempfile.TemporaryDirectory(prefix='amah-browser-') as td:
             assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'Match mobile overflow'
             page.screenshot(path=str(artifacts/'mobile-matches.png'),full_page=True)
             assert not errors, errors
-            print(json.dumps({'passed':True,'checks':['login','overview','customer matches','score explanations','fresher filter','manual ranking + reason','shortlisting','interview notes','intake suggestions','customer persistence','structured household + preferences','rank ordering','edit intake persistence','PDF upload + extraction','source evidence','staff review','candidate search','mobile layout','no browser runtime errors'],'artifacts':str(artifacts)},indent=2))
+            print(json.dumps({'passed':True,'checks':['login','overview','customer matches','score explanations','fresher filter','manual ranking + reason','shortlisting','interview notes','intake suggestions','customer persistence','structured household + preferences','rank ordering','edit intake persistence','PDF auto-population','deletion confirmation + removal','source evidence','staff review','candidate search','mobile layout','no browser runtime errors'],'artifacts':str(artifacts)},indent=2))
             browser.close()
     finally:
         server.terminate()

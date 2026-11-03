@@ -9,6 +9,8 @@ Requires Node.js 22+ and Python 3.10+. The web application uses only Node built-
 ```sh
 cd /workspace/abizerattary
 python3 -m pip install -r requirements.txt
+# macOS: enable scanned/image PDF extraction
+brew install tesseract
 npm start
 ```
 
@@ -22,8 +24,9 @@ Environment settings: `PORT` (3000), `HOST` (0.0.0.0), `DATA_DIR` (defaults to `
 2. Add a customer, paste conversation notes and review keyword suggestions. Confirm required/preferred/no-preference settings.
 3. Shortlist candidates, record when a PDF was sent, schedule an interview and save feedback.
 4. Switch to My ranking, drag a candidate or use the arrows, and record the reason.
-5. Upload multiple PDFs from Candidate library. Open Review queue, inspect extracted page text alongside the original, enter verified fields, and save.
-6. Mark a candidate Reserved: new shortlists are blocked. Placed and Withdrawn candidates disappear from active matches.
+5. Upload multiple PDFs from Candidate library. Personal details, languages, skills and dated employment history populate automatically where evidence is available. Open Review queue, inspect field/page sources alongside the original, correct uncertain values, and save.
+6. Use Re-extract PDF on older uploads after installing OCR or updating the extractor. Staff-corrected fields are preserved. Delete profile is available in the library and profile details; confirmation removes the record, original PDF, shortlist entries and ranking notes.
+7. Mark a candidate Reserved: new shortlists are blocked. Placed and Withdrawn candidates disappear from active matches.
 
 The application data and PDFs persist in ignored `data/`. Data backup downloads JSON; separately preserve `data/uploads/` to retain original documents. This is a single-process pilot store using atomic JSON writes, not a multi-instance production database. Do not share one data directory between server processes.
 
@@ -43,10 +46,12 @@ Nationality, age and religion preferences are recorded as notes for staff review
 
 ## First-cut limitations
 
-- PDF uploads retain the original and extract page text locally using PyMuPDF. AI field extraction and OCR are **not connected**. Every upload enters manual review; scanned PDFs need manual data entry.
+- PDF extraction runs locally with PyMuPDF and optional Tesseract OCR; no AI key is needed and documents are not sent externally. On macOS install OCR with `brew install tesseract`; on Debian/Ubuntu install the `tesseract-ocr` package. Without it, native PDF text still populates supported fields, but scanned/image-only fields are flagged.
+- Supported fields include name, DOB, age, height, weight, nationality, marital status, religion, education, siblings, child count/ages, languages, English level, salary, rest days, explicit availability, cooking, declared care skills, willingness and dated employment history. Source evidence is retained for extracted fields. Missing or conflicting values require staff review. The parser supports common labelled biodata forms; unfamiliar layouts, handwriting and poor scans may require correction.
+- Infant experience is not inferred from generic “infants/children” form wording. Willingness is distinct from experience. Job durations derived from year-only dates are approximate; overlapping periods are not double-counted.
 - Intake suggestions use explicit keywords, not an LLM. They cannot reliably understand negation or complex preferences. Staff must confirm them.
 - Name matches are flagged as possible duplicates. Automatic merging and a full cross-supplier reconciliation interface are not implemented.
-- The interface can record known fields and new notes; complete employment-history editing, detailed document revision comparison and field-level evidence mapping are later work. Extracted evidence is currently page-level.
+- Employment entries and populated personal details are editable. Field sources include page, extraction method and supporting text. Full supplier revision reconciliation remains later work.
 - Excel/Drive import, DOCX, WhatsApp sending, customer access, individual accounts, automated scheduling, production hardening and learned scoring are deferred.
 - Defaults use fictional data, not the user's actual biodata. The first cut has no public deployment yet.
 
@@ -56,4 +61,10 @@ Nationality, age and religion preferences are recorded as notes for staff review
 npm test
 ```
 
-Tests cover requirement eligibility, missing information, verified language, fresher handling, ranking, reservation protection, authenticated API access and persistence. See `test/browser.py` for an optional browser smoke run with Python Playwright and Chromium installed. Use a separate `DATA_DIR` when testing to preserve user data.
+Tests cover requirement eligibility, structured intake, missing information, PDF field extraction and OCR, staff corrections on re-extraction, authenticated deletion, original-file cleanup, deletion during processing, reservation protection and persistence. The extraction suite includes a real scanned-PDF OCR test when Tesseract is installed. See `test/browser.py` for an optional browser smoke run with Python Playwright and Chromium installed. Use a separate `DATA_DIR` when testing to preserve user data.
+
+## PDF extraction and review
+
+Uploads are queued with two concurrent workers and a three-minute per-document time limit. Each PDF may contain up to 25 pages and must be unlocked. Filenames are not treated as evidence for age or DOB. All imports remain in review even when many fields populate. Match scores distinguish missing care evidence from a known absence of experience. Field-level staff corrections are preserved during re-extraction.
+
+Deleting a candidate is permanent in this pilot. The browser confirms that the original PDF, profile and linked shortlist/ranking records will be removed. No extraction process can restore a deleted profile.

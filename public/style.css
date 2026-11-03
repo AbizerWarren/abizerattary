@@ -42,3 +42,9 @@ fieldset[hidden]{display:none}
 .intake-summary-row>span{color:var(--muted);flex-shrink:0}
 .intake-summary-row>strong{font-weight:500;text-align:right}
 @media(max-width:560px){.intake-section{padding:15px}.range-inputs{gap:7px}.range-inputs .field{font-size:10px}.range-inputs input,.range-inputs select{padding:8px 6px;font-size:11px}.resident-ages{grid-template-columns:repeat(2,minmax(0,1fr))}.question-label{font-size:11px}.question-heading{gap:7px}.no-preference{font-size:9px}.intake-summary-row{gap:10px}.intake-summary-row>span{flex-shrink:1}}
+.profile-actions{display:flex;gap:10px;align-items:center;margin-bottom:20px}
+.icon-button.danger{color:var(--red)}
+.field-evidence{margin-top:16px}
+.field-evidence>summary{cursor:pointer}
+.employment-entry{border-top:1px solid var(--line);margin-top:16px;padding-top:16px}
+.employment-entry textarea{min-height:70px}
