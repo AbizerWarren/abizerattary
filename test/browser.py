@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix='amah-browser-') as td:
             page.goto('http://127.0.0.1:3001')
             page.locator('[name=password]').fill('browser-test-only')
             page.get_by_role('button', name='Open workspace').click()
-            expect(page.get_by_role('heading',name='Good things start with a good match.')).to_be_visible()
+            expect(page.get_by_role('heading',name='Overview',exact=True)).to_be_visible()
             page.screenshot(path=str(artifacts/'overview.png'), full_page=True)
             page.get_by_role('button',name='The Tan family').click()
             expect(page.locator('.match-card')).to_have_count(8)
