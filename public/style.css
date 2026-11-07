@@ -48,3 +48,15 @@ fieldset[hidden]{display:none}
 .field-evidence>summary{cursor:pointer}
 .employment-entry{border-top:1px solid var(--line);margin-top:16px;padding-top:16px}
 .employment-entry textarea{min-height:70px}
+/* Overview: two primary destinations. */
+.entry-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;max-width:940px}
+.workspace-entry{display:flex;align-items:center;gap:22px;width:100%;min-height:170px;padding:32px;background:#fff;border:1px solid var(--line);border-radius:14px;text-align:left;transition:background .15s,border-color .15s,box-shadow .15s}
+.workspace-entry:hover{background:#f9fcf5;border-color:#b8cba9;box-shadow:0 5px 18px #183e3209}
+.entry-icon{display:grid;place-items:center;width:62px;height:62px;flex-shrink:0;border-radius:14px;background:#edf3e4;color:#537243}
+.entry-icon .icon{width:29px;height:29px}
+.workspace-entry:nth-child(2) .entry-icon{background:#e9efee;color:#4d776d}
+.entry-label{font-size:23px;font-weight:550;letter-spacing:-.5px}
+.entry-arrow{margin-left:auto;color:#879a7b;display:flex}
+.entry-arrow .icon{width:23px;height:23px}
+@media(max-width:850px){.entry-grid{gap:16px}.workspace-entry{padding:24px;gap:16px;min-height:150px}.entry-icon{width:48px;height:48px}.entry-label{font-size:21px}}
+@media(max-width:560px){.entry-grid{grid-template-columns:1fr;gap:14px}.workspace-entry{min-height:125px;padding:24px}.entry-label{font-size:22px}}

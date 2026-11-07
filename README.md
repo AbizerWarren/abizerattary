@@ -20,7 +20,7 @@ Environment settings: `PORT` (3000), `HOST` (0.0.0.0), `DATA_DIR` (defaults to `
 
 ## Try the workflow
 
-1. Open the Tan family's workspace to inspect score explanations and requirements.
+1. Overview has two entries: **FDW** opens the FDW dashboard (profiles, availability, uploads); **Customers** opens the customer dashboard (households, matching and interviews). Open the Tan family from Customers to inspect score explanations and requirements. Review queue and workspace settings remain in the sidebar.
 2. Add a customer, paste conversation notes and review keyword suggestions. Confirm required/preferred/no-preference settings.
 3. Shortlist candidates, record when a PDF was sent, schedule an interview and save feedback.
 4. Switch to My ranking, drag a candidate or use the arrows, and record the reason.
