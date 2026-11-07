@@ -3,3 +3,4 @@ node_modules/
 .env
 test-results/
 __pycache__/
+.venv/

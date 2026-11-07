@@ -32,6 +32,8 @@ The application data and PDFs persist in ignored `data/`. Data backup downloads 
 
 ## Customer intake
 
+New customer and Edit intake use dedicated full-page forms. FDW profile uploads also use a dedicated page with persistent batch results and extraction status. Use the page’s back/cancel controls to return to the relevant dashboard.
+
 New customer and Edit intake use the same form. Customer House Composition captures resident count and one age per resident (fractional years for infants), household marital status, residence type, religion and nationality. FDW Preference captures all 13 requested questions: numeric ideal/upper/lower bounds, ranked nationality/marital-status/religion choices, experience type, prior work location and ordinal education bounds. Inactive preferences are explicitly stored as No preference. Ranking supports selected options, custom entries and up/down controls.
 
 These fields persist as `householdComposition` and `fdwPreferences`; the household summary is generated from resident ages and residence type. Intake is viewable from Intake notes and editable from Edit intake. Existing records retain their old notes, requirements, shortlists and interview feedback; staff can complete the new fields when editing. New preference fields are captured for staff review; the existing job-requirement scoring is unchanged. Additional job requirements and pasted notes remain under a collapsible section.
